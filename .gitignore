@@ -22,3 +22,7 @@ dist/
 
 # Claude Code
 .claude/
+
+# Dev notes
+plan.md
+human_todos.md

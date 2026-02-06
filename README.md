@@ -30,8 +30,8 @@ A macOS desktop app for speech-to-text transcription. Supports both OpenAI's Whi
 
 ```bash
 # Clone the repository
-git clone https://github.com/timwyse/vtt.git
-cd vtt
+git clone https://github.com/timwyse/voice_to_text.git
+cd voice_to_text
 
 # Create and activate virtual environment
 python3 -m venv vttenv
@@ -50,8 +50,8 @@ The app will be installed to `/Applications/Voice to Text.app`. You can open it 
 
 ```bash
 # Clone and set up
-git clone https://github.com/YOUR_USERNAME/vtt.git
-cd vtt
+git clone https://github.com/timwyse/voice_to_text.git
+cd voice_to_text
 python3 -m venv vttenv
 source vttenv/bin/activate
 pip install -r requirements.txt
