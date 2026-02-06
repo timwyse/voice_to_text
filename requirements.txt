@@ -1,0 +1,8 @@
+openai
+faster-whisper
+sounddevice
+soundfile
+python-dotenv
+numpy
+PyQt6
+pyinstaller

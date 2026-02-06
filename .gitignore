@@ -1,0 +1,21 @@
+# Sensitive files
+.env
+
+# Python
+__pycache__/
+*.pyc
+
+# Virtual environment
+vttenv/
+
+# PyInstaller build artifacts
+build/
+dist/
+*.spec.bak
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
