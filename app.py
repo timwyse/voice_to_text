@@ -18,6 +18,27 @@ from settings import (
 )
 
 
+class VTTTextEdit(QTextEdit):
+    """QTextEdit subclass that adds missing macOS key bindings."""
+
+    def keyPressEvent(self, event):
+        mods = event.modifiers()
+        key = event.key()
+        # Cmd+Backspace: delete to start of line
+        if key == Qt.Key.Key_Backspace and mods == Qt.KeyboardModifier.ControlModifier:
+            cursor = self.textCursor()
+            cursor.movePosition(cursor.MoveOperation.StartOfBlock, cursor.MoveMode.KeepAnchor)
+            cursor.removeSelectedText()
+            return
+        # Cmd+Delete (Fn+Cmd+Backspace): delete to end of line
+        if key == Qt.Key.Key_Delete and mods == Qt.KeyboardModifier.ControlModifier:
+            cursor = self.textCursor()
+            cursor.movePosition(cursor.MoveOperation.EndOfBlock, cursor.MoveMode.KeepAnchor)
+            cursor.removeSelectedText()
+            return
+        super().keyPressEvent(event)
+
+
 def ensure_api_key():
     """Prompt for OpenAI API key on first launch if not set."""
     if os.environ.get("OPENAI_API_KEY"):
@@ -323,7 +344,7 @@ class VTTApp(QWidget):
         layout.addLayout(btn_row)
 
         # Text area
-        self.text_area = QTextEdit()
+        self.text_area = VTTTextEdit()
         self.text_area.setPlaceholderText("Transcriptions will appear here...")
         self.text_area.setStyleSheet("font-size: 14px; padding: 8px;")
         layout.addWidget(self.text_area)
