@@ -5,6 +5,7 @@ from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
     QPushButton, QTextEdit, QLabel, QInputDialog, QDialog,
     QComboBox, QLineEdit, QDialogButtonBox, QMessageBox, QGroupBox,
+    QTabWidget,
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QAction, QKeySequence
@@ -14,7 +15,7 @@ from transcriber import (
 )
 from settings import (
     Settings, MODEL_SIZES, DEVICES, COMPUTE_TYPES, LANGUAGES, TOOLTIPS,
-    is_model_downloaded, get_model_size_gb,
+    DEFAULT_POLISH_PROMPT, is_model_downloaded, get_model_size_gb,
 )
 
 
@@ -153,6 +154,20 @@ class SettingsDialog(QDialog):
         api_group.setLayout(api_layout)
         layout.addWidget(api_group)
 
+        # Polish settings
+        polish_group = QGroupBox("Transcript Polishing")
+        polish_layout = QFormLayout()
+
+        self.polish_prompt_input = QTextEdit()
+        self.polish_prompt_input.setPlainText(self.settings.polish_prompt)
+        self.polish_prompt_input.setFixedHeight(100)
+        self.polish_prompt_input.setPlaceholderText("Enter system prompt for polishing...")
+        polish_layout.addRow("Instruction prompt:", make_row_with_help(
+            self.polish_prompt_input, TOOLTIPS["polish_prompt"]))
+
+        polish_group.setLayout(polish_layout)
+        layout.addWidget(polish_group)
+
         # Buttons
         button_layout = QHBoxLayout()
 
@@ -185,6 +200,7 @@ class SettingsDialog(QDialog):
                 self.language_combo.setCurrentIndex(i)
                 break
         self.noise_filter_checkbox.setChecked(True)
+        self.polish_prompt_input.setPlainText(DEFAULT_POLISH_PROMPT)
 
     def save_settings(self):
         """Validate and save settings."""
@@ -225,6 +241,7 @@ class SettingsDialog(QDialog):
         self.settings.compute_type = self.compute_combo.currentText()
         self.settings.language = self.language_combo.currentData()
         self.settings.filter_background_noise = self.noise_filter_checkbox.isChecked()
+        self.settings.polish_prompt = self.polish_prompt_input.toPlainText().strip()
         self.settings.save()
 
         # Update API key if changed
@@ -278,6 +295,43 @@ class TranscribeWorker(QThread):
                 os.remove(self.audio_path)
 
 
+class PolishWorker(QThread):
+    """Background thread for LLM transcript polishing."""
+    finished = pyqtSignal(str)
+    error = pyqtSignal(str)
+    status_update = pyqtSignal(str)
+
+    def __init__(self, raw_text: str, system_prompt: str):
+        super().__init__()
+        self.raw_text = raw_text
+        self.system_prompt = system_prompt
+
+    def run(self):
+        try:
+            from openai import OpenAI
+            self.status_update.emit("Polishing transcript...")
+            api_key = os.environ.get("OPEN_ROUTER_API_KEY", "")
+            if not api_key:
+                self.error.emit("OPEN_ROUTER_API_KEY not set")
+                return
+            client = OpenAI(
+                api_key=api_key,
+                base_url="https://aicohort.org/v1",
+                timeout=30.0,
+            )
+            response = client.chat.completions.create(
+                model="research-model",
+                messages=[
+                    {"role": "system", "content": self.system_prompt},
+                    {"role": "user", "content": self.raw_text},
+                ],
+            )
+            polished = response.choices[0].message.content.strip()
+            self.finished.emit(polished)
+        except Exception as e:
+            self.error.emit(str(e))
+
+
 class VTTApp(QWidget):
     def __init__(self, settings: Settings):
         super().__init__()
@@ -286,6 +340,7 @@ class VTTApp(QWidget):
         self.is_recording = False
         self.use_local = False
         self.worker = None
+        self.polish_worker = None
         self.api_fallback_reason = None  # Tracks why API mode fell back to local
         self.fallback_warning_shown = False  # Only show dialog once per session
         self.init_ui()
@@ -341,13 +396,41 @@ class VTTApp(QWidget):
         mode_col.setSpacing(2)
         btn_row.addLayout(mode_col)
 
+        # Polish toggle
+        polish_col = QVBoxLayout()
+        self.polish_label = QLabel("Polish")
+        self.polish_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.polish_label.setStyleSheet("font-size: 10px; color: #999; margin: 0; padding: 0;")
+        polish_col.addWidget(self.polish_label)
+        self.polish_btn = QPushButton("Off")
+        self.polish_btn.setCheckable(True)
+        self.polish_btn.setChecked(self.settings.polish_enabled)
+        self.polish_btn.setFixedHeight(40)
+        self.polish_btn.setFixedWidth(100)
+        self.polish_btn.clicked.connect(self.toggle_polish)
+        polish_col.addWidget(self.polish_btn)
+        polish_col.setSpacing(2)
+        btn_row.addLayout(polish_col)
+
         layout.addLayout(btn_row)
 
-        # Text area
+        # Tab widget for original and polished transcripts
+        self.tab_widget = QTabWidget()
+
         self.text_area = VTTTextEdit()
         self.text_area.setPlaceholderText("Transcriptions will appear here...")
         self.text_area.setStyleSheet("font-size: 14px; padding: 8px;")
-        layout.addWidget(self.text_area)
+        self.tab_widget.addTab(self.text_area, "Original")
+
+        self.polished_area = VTTTextEdit()
+        self.polished_area.setPlaceholderText("Polished transcriptions will appear here...")
+        self.polished_area.setStyleSheet("font-size: 14px; padding: 8px;")
+
+        # Only show polished tab if polish is enabled
+        if self.settings.polish_enabled:
+            self.tab_widget.addTab(self.polished_area, "Polished")
+
+        layout.addWidget(self.tab_widget)
 
         # Copy button
         self.copy_btn = QPushButton("Copy All")
@@ -402,7 +485,7 @@ class VTTApp(QWidget):
 
     def keyPressEvent(self, event):
         if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-            if not self.text_area.hasFocus():
+            if not self.text_area.hasFocus() and not self.polished_area.hasFocus():
                 self.toggle_recording()
                 return
         if event.key() == Qt.Key.Key_Escape:
@@ -412,11 +495,23 @@ class VTTApp(QWidget):
         super().keyPressEvent(event)
 
     def copy_text(self):
-        text = self.text_area.toPlainText()
+        current_widget = self.tab_widget.currentWidget()
+        text = current_widget.toPlainText() if current_widget else ""
         if text:
             QApplication.clipboard().setText(text)
             self.status.setText("Copied to clipboard")
             self.status.setStyleSheet("font-size: 14px; color: #4CAF50; padding: 4px;")
+
+    def toggle_polish(self):
+        self.settings.polish_enabled = not self.settings.polish_enabled
+        self.settings.save()
+        if self.settings.polish_enabled:
+            if self.tab_widget.count() == 1:
+                self.tab_widget.addTab(self.polished_area, "Polished")
+        else:
+            if self.tab_widget.count() == 2:
+                self.tab_widget.removeTab(1)
+        self.update_styles()
 
     def toggle_mode(self):
         self.use_local = not self.use_local
@@ -433,6 +528,10 @@ class VTTApp(QWidget):
             self.start_recording()
 
     def start_recording(self):
+        # Cancel any in-progress polishing
+        if self.polish_worker and self.polish_worker.isRunning():
+            self.polish_worker.terminate()
+            self.polish_worker = None
         self.is_recording = True
         self.recorder.start()
         self.btn.setText("Stop")
@@ -444,6 +543,7 @@ class VTTApp(QWidget):
             QPushButton:hover { background-color: #da190b; }
         """)
         self.mode_btn.setEnabled(False)
+        self.polish_btn.setEnabled(False)
         self.status.setText("Recording... (press Enter to stop)")
         self.status.setStyleSheet("font-size: 14px; color: #f44336; padding: 4px;")
 
@@ -523,6 +623,30 @@ class VTTApp(QWidget):
             self.api_fallback_reason = None
             self.fallback_warning.hide()
 
+        # Chain polishing if enabled
+        stripped = text.strip()
+        if self.settings.polish_enabled and stripped:
+            self.polish_worker = PolishWorker(stripped, self.settings.polish_prompt)
+            self.polish_worker.status_update.connect(self.on_status_update)
+            self.polish_worker.finished.connect(self.on_polish_complete)
+            self.polish_worker.error.connect(self.on_polish_error)
+            self.polish_worker.start()
+            return
+
+        self.reset_button()
+
+    def on_polish_complete(self, polished_text):
+        if self.polished_area.toPlainText():
+            self.polished_area.append("")
+        self.polished_area.append(polished_text)
+        self.tab_widget.setCurrentWidget(self.polished_area)
+        self.status.setText("Done (polished)")
+        self.status.setStyleSheet("font-size: 14px; color: #4CAF50; padding: 4px;")
+        self.reset_button()
+
+    def on_polish_error(self, error_msg):
+        self.status.setText(f"Polish failed: {error_msg}")
+        self.status.setStyleSheet("font-size: 14px; color: #ff9800; padding: 4px;")
         self.reset_button()
 
     def on_error(self, error_msg):
@@ -533,6 +657,7 @@ class VTTApp(QWidget):
     def reset_button(self):
         self.btn.setEnabled(True)
         self.mode_btn.setEnabled(True)
+        self.polish_btn.setEnabled(True)
         self.update_styles()
 
     def update_styles(self):
@@ -562,6 +687,25 @@ class VTTApp(QWidget):
                     background-color: #2196F3; color: white; border: 2px solid #1565C0;
                 }
                 QPushButton:hover { background-color: #1976D2; }
+            """)
+        self.polish_btn.setChecked(self.settings.polish_enabled)
+        if self.settings.polish_enabled:
+            self.polish_btn.setText("On")
+            self.polish_btn.setStyleSheet("""
+                QPushButton {
+                    font-size: 13px; font-weight: bold; border-radius: 15px;
+                    background-color: #009688; color: white; border: 2px solid #00796B;
+                }
+                QPushButton:hover { background-color: #00897B; }
+            """)
+        else:
+            self.polish_btn.setText("Off")
+            self.polish_btn.setStyleSheet("""
+                QPushButton {
+                    font-size: 13px; font-weight: bold; border-radius: 15px;
+                    background-color: #9E9E9E; color: white; border: 2px solid #757575;
+                }
+                QPushButton:hover { background-color: #8E8E8E; }
             """)
 
 

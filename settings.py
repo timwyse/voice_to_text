@@ -49,15 +49,29 @@ LANGUAGES = [
     ("hi", "Hindi"),
 ]
 
+DEFAULT_POLISH_PROMPT = (
+    "You are a transcript editor preparing text for use as input to a language model. "
+    "Clean up the following speech transcript:\n"
+    "- Fix grammar, spelling, and punctuation\n"
+    "- Remove filler words (um, uh, like, you know) and false starts\n"
+    "- Restructure run-on sentences into clear, concise statements\n"
+    "- Preserve the speaker's intent, meaning, and any specific instructions or requests\n"
+    "- Organize the text logically if the speaker jumped between topics\n"
+    "- Return only the polished text, no commentary"
+)
+
 DEFAULTS = {
     "model_size": "small",
     "device": "cpu",
     "compute_type": "int8",
     "language": "en",
     "filter_background_noise": True,
+    "polish_enabled": False,
+    "polish_prompt": DEFAULT_POLISH_PROMPT,
 }
 
 TOOLTIPS["filter_background_noise"] = "Filter out background noise, typing sounds, and non-speech audio. Recommended."
+TOOLTIPS["polish_prompt"] = "System instructions sent to the LLM along with your transcript for polishing."
 
 
 class Settings:
@@ -69,6 +83,8 @@ class Settings:
         self.compute_type = DEFAULTS["compute_type"]
         self.language = DEFAULTS["language"]
         self.filter_background_noise = DEFAULTS["filter_background_noise"]
+        self.polish_enabled = DEFAULTS["polish_enabled"]
+        self.polish_prompt = DEFAULTS["polish_prompt"]
         self.load()
 
     def load(self):
@@ -81,6 +97,8 @@ class Settings:
                 self.compute_type = data.get("compute_type", DEFAULTS["compute_type"])
                 self.language = data.get("language", DEFAULTS["language"])
                 self.filter_background_noise = data.get("filter_background_noise", DEFAULTS["filter_background_noise"])
+                self.polish_enabled = data.get("polish_enabled", DEFAULTS["polish_enabled"])
+                self.polish_prompt = data.get("polish_prompt", DEFAULTS["polish_prompt"])
             except (json.JSONDecodeError, KeyError):
                 pass
 
@@ -92,6 +110,8 @@ class Settings:
             "compute_type": self.compute_type,
             "language": self.language,
             "filter_background_noise": self.filter_background_noise,
+            "polish_enabled": self.polish_enabled,
+            "polish_prompt": self.polish_prompt,
         }
         SETTINGS_FILE.write_text(json.dumps(data, indent=2))
 
@@ -102,6 +122,8 @@ class Settings:
         self.compute_type = DEFAULTS["compute_type"]
         self.language = DEFAULTS["language"]
         self.filter_background_noise = DEFAULTS["filter_background_noise"]
+        self.polish_enabled = DEFAULTS["polish_enabled"]
+        self.polish_prompt = DEFAULTS["polish_prompt"]
 
     def to_dict(self):
         """Return settings as a dictionary."""
@@ -111,6 +133,8 @@ class Settings:
             "compute_type": self.compute_type,
             "language": self.language,
             "filter_background_noise": self.filter_background_noise,
+            "polish_enabled": self.polish_enabled,
+            "polish_prompt": self.polish_prompt,
         }
 
 

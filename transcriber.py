@@ -19,13 +19,12 @@ def get_data_dir():
     return d
 
 
-# Load .env from data dir first, then fall back to project dir
+# Load .env from data dir and project dir (both, so all keys are available)
 _data_dir = get_data_dir()
 _data_env = _data_dir / ".env"
 if _data_env.exists():
     load_dotenv(_data_env)
-else:
-    load_dotenv()
+load_dotenv()  # project dir .env (won't override existing keys)
 
 DEFAULT_PRICE = 0.006
 PRICE_CACHE_FILE = _data_dir / "price_cache.json"
