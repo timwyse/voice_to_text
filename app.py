@@ -321,7 +321,9 @@ class PolishWorker(QThread):
                     reasoning_effort="minimal",
                     messages=[
                         {"role": "system", "content": self.system_prompt},
-                        {"role": "user", "content": self.raw_text},
+                        {"role": "user", "content": (
+                            f"<transcript>\n{self.raw_text}\n</transcript>"
+                        )},
                     ],
                 )
             except (AuthenticationError, PermissionDeniedError):
@@ -342,6 +344,8 @@ class VTTApp(QWidget):
         self.use_local = False
         self.worker = None
         self.polish_worker = None
+        # Cancelled transcribe workers we keep alive until their thread exits
+        self._orphan_workers = []
         self.api_fallback_reason = None  # Tracks why API mode fell back to local
         self.fallback_warning_shown = False  # Only show dialog once per session
         self.init_ui()
@@ -369,6 +373,22 @@ class VTTApp(QWidget):
         self.btn.setFixedHeight(60)
         self.btn.clicked.connect(self.toggle_recording)
         btn_row.addWidget(self.btn)
+
+        # Cancel button (only visible while recording/transcribing/polishing)
+        self.cancel_btn = QPushButton("Cancel")
+        self.cancel_btn.setFixedHeight(60)
+        self.cancel_btn.setFixedWidth(80)
+        self.cancel_btn.clicked.connect(self.cancel_current)
+        self.cancel_btn.setStyleSheet("""
+            QPushButton {
+                font-size: 14px; border-radius: 8px;
+                background-color: transparent; color: #d32f2f;
+                border: 1px solid #d32f2f;
+            }
+            QPushButton:hover { background-color: #fdecea; }
+        """)
+        self.cancel_btn.hide()
+        btn_row.addWidget(self.cancel_btn)
 
         # API/Local toggle
         mode_col = QVBoxLayout()
@@ -490,8 +510,16 @@ class VTTApp(QWidget):
                 self.toggle_recording()
                 return
         if event.key() == Qt.Key.Key_Escape:
-            self.text_area.clearFocus()
-            self.setFocus()
+            busy = (
+                self.is_recording
+                or (self.worker and self.worker.isRunning())
+                or (self.polish_worker and self.polish_worker.isRunning())
+            )
+            if busy:
+                self.cancel_current()
+            else:
+                self.text_area.clearFocus()
+                self.setFocus()
             return
         super().keyPressEvent(event)
 
@@ -525,8 +553,38 @@ class VTTApp(QWidget):
     def toggle_recording(self):
         if self.is_recording:
             self.stop_recording()
-        else:
+        elif self.btn.isEnabled():
             self.start_recording()
+
+    def cancel_current(self):
+        """Cancel the current recording, transcription, or polishing."""
+        if self.is_recording:
+            self.is_recording = False
+            self.recorder.stop()
+            self.status.setText("Recording cancelled")
+        elif self.worker and self.worker.isRunning():
+            # Detach the running worker and let it finish quietly in the
+            # background (it deletes its own temp file). Keep a reference
+            # until the thread exits so it isn't garbage-collected mid-run.
+            for sig in (self.worker.finished, self.worker.error,
+                        self.worker.status_update):
+                try:
+                    sig.disconnect()
+                except TypeError:
+                    pass
+            self._orphan_workers = [w for w in self._orphan_workers
+                                    if w.isRunning()]
+            self._orphan_workers.append(self.worker)
+            self.worker = None
+            self.status.setText("Transcription cancelled")
+        elif self.polish_worker and self.polish_worker.isRunning():
+            self.polish_worker.terminate()
+            self.polish_worker = None
+            self.status.setText("Polishing cancelled")
+        else:
+            return
+        self.status.setStyleSheet("font-size: 14px; color: #666; padding: 4px;")
+        self.reset_button()
 
     def start_recording(self):
         # Cancel any in-progress polishing
@@ -545,7 +603,8 @@ class VTTApp(QWidget):
         """)
         self.mode_btn.setEnabled(False)
         self.polish_btn.setEnabled(False)
-        self.status.setText("Recording... (press Enter to stop)")
+        self.cancel_btn.show()
+        self.status.setText("Recording... (Enter to stop, Esc to cancel)")
         self.status.setStyleSheet("font-size: 14px; color: #f44336; padding: 4px;")
 
     def stop_recording(self):
@@ -663,6 +722,7 @@ class VTTApp(QWidget):
         self.btn.setEnabled(True)
         self.mode_btn.setEnabled(True)
         self.polish_btn.setEnabled(True)
+        self.cancel_btn.hide()
         self.update_styles()
 
     def update_styles(self):

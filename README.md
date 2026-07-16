@@ -17,8 +17,8 @@ A macOS desktop app for speech-to-text transcription. Supports both OpenAI's Whi
 
 1. Press **Record** (or hit **Enter**) to start recording
 2. Speak into your microphone
-3. Press **Stop** (or hit **Enter** again) to finish
-4. The app transcribes your audio and displays the text
+3. Press **Stop** (or hit **Enter** again) to finish — or **Cancel** (or hit **Escape**) to discard the recording without transcribing
+4. The app transcribes your audio and displays the text (cancellable too, if you change your mind)
 5. If **Polish** is enabled, the transcript is automatically sent to an LLM for cleanup
 6. Click **Copy All** to copy the transcription to your clipboard
 
@@ -125,7 +125,7 @@ Whisper models are cached in `~/.cache/huggingface/hub/`.
 | Shortcut | Action |
 |----------|--------|
 | `Enter` | Start/stop recording (when text area not focused) |
-| `Escape` | Unfocus text area |
+| `Escape` | Cancel recording/transcription/polishing; otherwise unfocus text area |
 | `Cmd + ,` | Open Settings |
 | `Cmd + W` | Close window |
 
