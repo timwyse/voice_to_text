@@ -47,7 +47,7 @@ def ensure_api_key():
     env_path = get_data_dir() / ".env"
     key, ok = QInputDialog.getText(
         None, "Voice to Text — Setup",
-        "Enter your OpenAI API key (for Whisper transcription).\n"
+        "Enter your OpenAI API key (for transcription and polishing).\n"
         "Leave blank to use local-only mode.",
     )
     if ok and key.strip():
@@ -145,11 +145,11 @@ class SettingsDialog(QDialog):
 
         self.api_key_input = QLineEdit()
         self.api_key_input.setEchoMode(QLineEdit.EchoMode.Password)
-        self.api_key_input.setPlaceholderText("Enter API key...")
+        self.api_key_input.setPlaceholderText("Used for transcription and polishing...")
         current_key = os.environ.get("OPENAI_API_KEY", "")
         if current_key:
             self.api_key_input.setText(current_key)
-        api_layout.addRow("OpenAI API Key:", self.api_key_input)
+        api_layout.addRow("OpenAI API key:", self.api_key_input)
 
         api_group.setLayout(api_layout)
         layout.addWidget(api_group)
@@ -308,25 +308,28 @@ class PolishWorker(QThread):
 
     def run(self):
         try:
-            from openai import OpenAI
+            from openai import OpenAI, AuthenticationError, PermissionDeniedError
             self.status_update.emit("Polishing transcript...")
-            api_key = os.environ.get("OPEN_ROUTER_API_KEY", "")
+            api_key = os.environ.get("OPENAI_API_KEY", "")
             if not api_key:
-                self.error.emit("OPEN_ROUTER_API_KEY not set")
+                self.error.emit("No OpenAI API key — add one in Settings")
                 return
-            client = OpenAI(
-                api_key=api_key,
-                base_url="https://aicohort.org/v1",
-                timeout=30.0,
-            )
-            response = client.chat.completions.create(
-                model="research-model",
-                messages=[
-                    {"role": "system", "content": self.system_prompt},
-                    {"role": "user", "content": self.raw_text},
-                ],
-            )
-            polished = response.choices[0].message.content.strip()
+            client = OpenAI(api_key=api_key, timeout=60.0)
+            try:
+                response = client.chat.completions.create(
+                    model="gpt-5-mini",
+                    reasoning_effort="minimal",
+                    messages=[
+                        {"role": "system", "content": self.system_prompt},
+                        {"role": "user", "content": (
+                            f"<transcript>\n{self.raw_text}\n</transcript>"
+                        )},
+                    ],
+                )
+            except (AuthenticationError, PermissionDeniedError):
+                self.error.emit("OpenAI key rejected — it may be expired or invalid")
+                return
+            polished = (response.choices[0].message.content or "").strip()
             self.finished.emit(polished)
         except Exception as e:
             self.error.emit(str(e))
@@ -341,6 +344,8 @@ class VTTApp(QWidget):
         self.use_local = False
         self.worker = None
         self.polish_worker = None
+        # Cancelled transcribe workers we keep alive until their thread exits
+        self._orphan_workers = []
         self.api_fallback_reason = None  # Tracks why API mode fell back to local
         self.fallback_warning_shown = False  # Only show dialog once per session
         self.init_ui()
@@ -368,6 +373,22 @@ class VTTApp(QWidget):
         self.btn.setFixedHeight(60)
         self.btn.clicked.connect(self.toggle_recording)
         btn_row.addWidget(self.btn)
+
+        # Cancel button (only visible while recording/transcribing/polishing)
+        self.cancel_btn = QPushButton("Cancel")
+        self.cancel_btn.setFixedHeight(60)
+        self.cancel_btn.setFixedWidth(80)
+        self.cancel_btn.clicked.connect(self.cancel_current)
+        self.cancel_btn.setStyleSheet("""
+            QPushButton {
+                font-size: 14px; border-radius: 8px;
+                background-color: transparent; color: #d32f2f;
+                border: 1px solid #d32f2f;
+            }
+            QPushButton:hover { background-color: #fdecea; }
+        """)
+        self.cancel_btn.hide()
+        btn_row.addWidget(self.cancel_btn)
 
         # API/Local toggle
         mode_col = QVBoxLayout()
@@ -489,8 +510,16 @@ class VTTApp(QWidget):
                 self.toggle_recording()
                 return
         if event.key() == Qt.Key.Key_Escape:
-            self.text_area.clearFocus()
-            self.setFocus()
+            busy = (
+                self.is_recording
+                or (self.worker and self.worker.isRunning())
+                or (self.polish_worker and self.polish_worker.isRunning())
+            )
+            if busy:
+                self.cancel_current()
+            else:
+                self.text_area.clearFocus()
+                self.setFocus()
             return
         super().keyPressEvent(event)
 
@@ -524,8 +553,38 @@ class VTTApp(QWidget):
     def toggle_recording(self):
         if self.is_recording:
             self.stop_recording()
-        else:
+        elif self.btn.isEnabled():
             self.start_recording()
+
+    def cancel_current(self):
+        """Cancel the current recording, transcription, or polishing."""
+        if self.is_recording:
+            self.is_recording = False
+            self.recorder.stop()
+            self.status.setText("Recording cancelled")
+        elif self.worker and self.worker.isRunning():
+            # Detach the running worker and let it finish quietly in the
+            # background (it deletes its own temp file). Keep a reference
+            # until the thread exits so it isn't garbage-collected mid-run.
+            for sig in (self.worker.finished, self.worker.error,
+                        self.worker.status_update):
+                try:
+                    sig.disconnect()
+                except TypeError:
+                    pass
+            self._orphan_workers = [w for w in self._orphan_workers
+                                    if w.isRunning()]
+            self._orphan_workers.append(self.worker)
+            self.worker = None
+            self.status.setText("Transcription cancelled")
+        elif self.polish_worker and self.polish_worker.isRunning():
+            self.polish_worker.terminate()
+            self.polish_worker = None
+            self.status.setText("Polishing cancelled")
+        else:
+            return
+        self.status.setStyleSheet("font-size: 14px; color: #666; padding: 4px;")
+        self.reset_button()
 
     def start_recording(self):
         # Cancel any in-progress polishing
@@ -544,7 +603,8 @@ class VTTApp(QWidget):
         """)
         self.mode_btn.setEnabled(False)
         self.polish_btn.setEnabled(False)
-        self.status.setText("Recording... (press Enter to stop)")
+        self.cancel_btn.show()
+        self.status.setText("Recording... (Enter to stop, Esc to cancel)")
         self.status.setStyleSheet("font-size: 14px; color: #f44336; padding: 4px;")
 
     def stop_recording(self):
@@ -582,7 +642,11 @@ class VTTApp(QWidget):
         self.status.setText(f"Transcribing via {mode} ({duration:.1f}s of audio)...")
         self.status.setStyleSheet("font-size: 14px; color: #ff9800; padding: 4px;")
 
-        temp_path = self.recorder.save_to_temp()
+        try:
+            temp_path = self.recorder.save_to_temp()
+        except RuntimeError as e:
+            self.on_error(str(e))
+            return
         self.worker = TranscribeWorker(temp_path, force_local=self.use_local,
                                        settings=self.settings)
         self.worker.status_update.connect(self.on_status_update)
@@ -658,6 +722,7 @@ class VTTApp(QWidget):
         self.btn.setEnabled(True)
         self.mode_btn.setEnabled(True)
         self.polish_btn.setEnabled(True)
+        self.cancel_btn.hide()
         self.update_styles()
 
     def update_styles(self):

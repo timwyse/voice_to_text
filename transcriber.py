@@ -183,6 +183,8 @@ class Recorder:
 
     def save_to_temp(self):
         """Save recorded audio to a temp file. Caller must delete it."""
+        if not self.frames:
+            raise RuntimeError("No audio captured — recording was too short")
         data = np.concatenate(self.frames)
         temp_fd, temp_path = tempfile.mkstemp(suffix='.wav')
         os.close(temp_fd)
@@ -193,7 +195,7 @@ class Recorder:
 def transcribe_with_api(audio_path):
     """Transcribe using OpenAI Whisper API."""
     from openai import OpenAI
-    client = OpenAI(timeout=5.0)
+    client = OpenAI(timeout=60.0)
     with open(audio_path, "rb") as f:
         result = client.audio.transcriptions.create(model="whisper-1", file=f)
     return result.text
