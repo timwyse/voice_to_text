@@ -22,6 +22,10 @@ There is no test suite. Verify changes by running `python app.py`.
 - `settings.py` — `Settings` class (JSON persistence), constants, default polish prompt
 - `voicetotext.spec` / `build.sh` — PyInstaller packaging
 
+## Git workflow
+
+PRs in this repo get merged quickly, often while a session is still working. **Before pushing to a branch that has a PR, check the PR is still open** — commits pushed after a merge land on the dead branch and appear in no PR. If it has merged, start a fresh branch from `origin/main` and cherry-pick.
+
 ## Key facts
 
 - User data lives in `~/Library/Application Support/VoiceToText/`: `settings.json`, `.env` (holds `OPENAI_API_KEY`), `price_cache.json`
