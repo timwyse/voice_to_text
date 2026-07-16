@@ -24,4 +24,4 @@ Working macOS app, installed at `/Applications/Voice to Text.app`. Latest fixes 
 - Revoke the old OpenRouter key (was being sent to `aicohort.org`) and figure out how that endpoint got into commit a03a12c
 - API price check asks an LLM for pricing — unreliable; consider a hardcoded constant
 - `gh` CLI not installed (PRs created via REST API with git credentials)
-- From `human_todos.md`: discuss system requirements / failure modes; clean up repo of unused files (e.g. `plan.md` references a `vtt.py` CLI that no longer exists)
+- From `human_todos.md`: discuss system requirements / failure modes; clean up repo of unused files
