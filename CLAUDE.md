@@ -2,6 +2,8 @@
 
 macOS desktop app (PyQt6) for speech-to-text: record with one button/Enter key, transcribe via OpenAI Whisper API with local faster-whisper fallback, optionally polish the transcript with an LLM.
 
+**Check `PROGRESS.md` at the start of a session** for current state and open items, and update it when you complete meaningful work, discover new open items, or find it stale (e.g. a listed PR has since merged). Don't log minor tweaks.
+
 ## Commands
 
 ```bash
