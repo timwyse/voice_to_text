@@ -2,6 +2,8 @@
 
 macOS desktop app (PyQt6) for speech-to-text: record with one button/Enter key, transcribe via OpenAI Whisper API with local faster-whisper fallback, optionally polish the transcript with an LLM.
 
+**Check `PROGRESS.md` at the start of a session** for current state and open items, and update it when you complete meaningful work, discover new open items, or find it stale (e.g. a listed PR has since merged). Don't log minor tweaks.
+
 ## Commands
 
 ```bash
@@ -19,6 +21,10 @@ There is no test suite. Verify changes by running `python app.py`.
 - `transcriber.py` — recording (`Recorder`), transcription (API + local fallback logic in `transcribe_audio`), API price checking/caching
 - `settings.py` — `Settings` class (JSON persistence), constants, default polish prompt
 - `voicetotext.spec` / `build.sh` — PyInstaller packaging
+
+## Git workflow
+
+PRs in this repo get merged quickly, often while a session is still working. **Before pushing to a branch that has a PR, check the PR is still open** — commits pushed after a merge land on the dead branch and appear in no PR. If it has merged, start a fresh branch from `origin/main` and cherry-pick.
 
 ## Key facts
 
