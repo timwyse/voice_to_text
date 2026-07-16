@@ -24,6 +24,8 @@ There is no test suite. Verify changes by running `python app.py`.
 
 ## Git workflow
 
+**When starting work on `main`, first make sure local is up to date with remote** (`git fetch` and fast-forward to `origin/main`) — local main is often behind because PRs merge on GitHub.
+
 PRs in this repo get merged quickly, often while a session is still working. **Before pushing to a branch that has a PR, check the PR is still open** — commits pushed after a merge land on the dead branch and appear in no PR. If it has merged, start a fresh branch from `origin/main` and cherry-pick.
 
 ## Key facts
