@@ -106,7 +106,7 @@ Enter your OpenAI API key to enable API transcription mode. Get one at [platform
 | Polish toggle | Enable/disable LLM polishing via the **Polish** button in the main window. |
 | Instruction prompt | The system prompt sent to the LLM alongside your transcript. Customise it in Settings to control how the polishing behaves (e.g. keep technical jargon, format as bullet points, etc.). |
 
-Polishing requires an `OPEN_ROUTER_API_KEY` environment variable set in the app's `.env` file.
+Polishing uses the OpenAI API (`gpt-5-mini` with minimal reasoning effort) with the same OpenAI API key used for transcription, which you can set directly in Settings under **API**.
 
 ## Data Storage
 
@@ -115,7 +115,7 @@ The app stores user data in `~/Library/Application Support/VoiceToText/`:
 | File | Purpose |
 |------|---------|
 | `settings.json` | Your transcription and polishing settings |
-| `.env` | Your API keys (OpenAI for transcription, OpenRouter for polishing) |
+| `.env` | Your OpenAI API key (used for transcription and polishing) |
 | `price_cache.json` | Cached API pricing info |
 
 Whisper models are cached in `~/.cache/huggingface/hub/`.
@@ -139,7 +139,9 @@ Whisper models are cached in `~/.cache/huggingface/hub/`.
 
 **Transcription quality poor** - Try a larger model size, or enable "Filter background noise" in Settings.
 
-**"Polish failed: OPEN_ROUTER_API_KEY not set"** - Add your OpenRouter API key to the `.env` file in the app's data directory (`~/Library/Application Support/VoiceToText/.env`): `OPEN_ROUTER_API_KEY="your-key-here"`.
+**"Polish failed: No OpenAI API key"** - Open Settings and paste your OpenAI key into the **OpenAI API key** field.
+
+**"Polish failed: OpenAI key rejected"** - Your key is invalid or expired. Generate a new one and update it in Settings.
 
 **Polish output not as expected** - Customise the instruction prompt in Settings > Transcript Polishing to better suit your use case.
 

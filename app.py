@@ -47,7 +47,7 @@ def ensure_api_key():
     env_path = get_data_dir() / ".env"
     key, ok = QInputDialog.getText(
         None, "Voice to Text — Setup",
-        "Enter your OpenAI API key (for Whisper transcription).\n"
+        "Enter your OpenAI API key (for transcription and polishing).\n"
         "Leave blank to use local-only mode.",
     )
     if ok and key.strip():
@@ -145,11 +145,11 @@ class SettingsDialog(QDialog):
 
         self.api_key_input = QLineEdit()
         self.api_key_input.setEchoMode(QLineEdit.EchoMode.Password)
-        self.api_key_input.setPlaceholderText("Enter API key...")
+        self.api_key_input.setPlaceholderText("Used for transcription and polishing...")
         current_key = os.environ.get("OPENAI_API_KEY", "")
         if current_key:
             self.api_key_input.setText(current_key)
-        api_layout.addRow("OpenAI API Key:", self.api_key_input)
+        api_layout.addRow("OpenAI API key:", self.api_key_input)
 
         api_group.setLayout(api_layout)
         layout.addWidget(api_group)
@@ -308,25 +308,26 @@ class PolishWorker(QThread):
 
     def run(self):
         try:
-            from openai import OpenAI
+            from openai import OpenAI, AuthenticationError, PermissionDeniedError
             self.status_update.emit("Polishing transcript...")
-            api_key = os.environ.get("OPEN_ROUTER_API_KEY", "")
+            api_key = os.environ.get("OPENAI_API_KEY", "")
             if not api_key:
-                self.error.emit("OPEN_ROUTER_API_KEY not set")
+                self.error.emit("No OpenAI API key — add one in Settings")
                 return
-            client = OpenAI(
-                api_key=api_key,
-                base_url="https://aicohort.org/v1",
-                timeout=30.0,
-            )
-            response = client.chat.completions.create(
-                model="research-model",
-                messages=[
-                    {"role": "system", "content": self.system_prompt},
-                    {"role": "user", "content": self.raw_text},
-                ],
-            )
-            polished = response.choices[0].message.content.strip()
+            client = OpenAI(api_key=api_key, timeout=60.0)
+            try:
+                response = client.chat.completions.create(
+                    model="gpt-5-mini",
+                    reasoning_effort="minimal",
+                    messages=[
+                        {"role": "system", "content": self.system_prompt},
+                        {"role": "user", "content": self.raw_text},
+                    ],
+                )
+            except (AuthenticationError, PermissionDeniedError):
+                self.error.emit("OpenAI key rejected — it may be expired or invalid")
+                return
+            polished = (response.choices[0].message.content or "").strip()
             self.finished.emit(polished)
         except Exception as e:
             self.error.emit(str(e))
@@ -582,7 +583,11 @@ class VTTApp(QWidget):
         self.status.setText(f"Transcribing via {mode} ({duration:.1f}s of audio)...")
         self.status.setStyleSheet("font-size: 14px; color: #ff9800; padding: 4px;")
 
-        temp_path = self.recorder.save_to_temp()
+        try:
+            temp_path = self.recorder.save_to_temp()
+        except RuntimeError as e:
+            self.on_error(str(e))
+            return
         self.worker = TranscribeWorker(temp_path, force_local=self.use_local,
                                        settings=self.settings)
         self.worker.status_update.connect(self.on_status_update)
